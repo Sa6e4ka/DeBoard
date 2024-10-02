@@ -1,55 +1,65 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.9;
 
-contract AddContract     {
-
-    uint256 public totalAds;
+contract AddContract {
     address payable public owner;
 
     constructor() payable {
         owner = payable(msg.sender);
     }
 
-    event newAdd (
+    event NewAdd(
         address indexed from,
-        uint256 timestamp,
-        string message, 
-        string name,
-        string image
+        string description,
+        string title,
+        string image,
+        uint256 price
     );
 
     struct Add {
-        uint256 timestamp;
-        string name;
-        string message; 
+        string title;
+        string description;
         string image;
         address sender;
+        uint256 price;
     }
 
-    Add[] adds;
+    Add[] public adds;
 
-    function getAdds() public view returns(Add[] memory) {
-        return adds;
-    }
-
-    function getTotalAdds() public view returns(uint256) {
-        return totalAds;
+    function getAdds(uint start, uint count) public view returns (Add[] memory) {
+        require(start < adds.length, "Start index out of bounds");
+        uint end = start + count > adds.length ? adds.length : start + count;
+        uint addsCount = end - start;
+        
+        Add[] memory addsSubset = new Add[](addsCount);
+        for (uint i = 0; i < addsCount; i++) {
+            addsSubset[i] = adds[start + i];
+        }
+        return addsSubset;
     }
 
     function placeAdd(
-        string memory _message, 
-        string memory _name, 
+        string memory _title,           
+        string memory _description,
+        uint256 _price, // В Wei 
         string memory _image
-    ) payable public {
-        require(msg.value == 0.01 ether, "You must pay 0.01 ETH to place your add");
+    ) public payable {
+        require(msg.value == 0.01 ether, "You must pay 0.01 ETH to place your ad");
 
-        totalAds += 1;
+        // Добавляем объявление в массив
+        adds.push(Add({
+            title: _title, 
+            description: _description, 
+            image: _image, 
+            sender: msg.sender, 
+            price: _price
+        }));
 
-        adds.push(Add(block.timestamp, _name, _message, _image, msg.sender));
+        // Перевод оплаты владельцу
+        (bool success, ) = owner.call{value: msg.value}("");
+        require(success, "Failed to pay for the ad");
 
-        (bool success,) = owner.call{value: msg.value}("");
-        require(success, "Failed to pay for the add");
-
-        emit newAdd(msg.sender, block.timestamp , _message, _name, _image);
+        // Генерация события
+        emit NewAdd(msg.sender, _description, _title, _image, _price);
     }
 }
