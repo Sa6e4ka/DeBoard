@@ -36,7 +36,7 @@ const Messenger = () => {
         message: newMessage,
       };
       setMessages((prev) => [...prev, messageData]);
-      setNewMessage(""); // Clear the input after sending
+      setNewMessage(""); 
     }
   };
 

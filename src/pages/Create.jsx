@@ -10,97 +10,55 @@ import {
   useColorModeValue,
 } from "@chakra-ui/react";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
-import { useSendTransaction, TransactionButton } from "thirdweb/react";
+import { useNavigate } from "react-router-dom";
 
-import { ethers } from "ethers";
-
-import upload from "../pinata";
 import {
-  getContract,
-  prepareContractCall,
-  createThirdwebClient,
-} from "thirdweb";
+  useSendTransaction,
+  useActiveAccount,
+  useActiveWalletChain,
+} from "thirdweb/react";
+
+import { prepareContractCall } from "thirdweb";
+import { toWei } from "thirdweb/utils";
 
 import Header from "../components/Header";
 import Footer from "../components/Footer";
-// import { client } from "../client";
-
-const address = "0x25851a58D622C68eF80817230307b0a6DDeB1769"; // Адрес контракта
-const client = createThirdwebClient({
-  clientId: "41cfc76de149acd5cab2e1d5f7544c2b",
-});
+import InitialContract from "../contract";
+import upload from "../pinata";
 
 const List = () => {
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
   const [image, setImage] = useState(null);
   const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false); // For button and status control
 
   const { mutate: sendTransaction } = useSendTransaction();
 
-  const value = ethers.utils.parseEther("0.01");
-  // Инициализация контракта через thirdweb
-  const contract = getContract({
-    client: client,
-    address: address,
-    chainId: 11155111, // Sepolia Testnet
-  });
+  const bg = useColorModeValue("gray.100", "gray.800");
+  const textColor = useColorModeValue("gray.700", "white");
+
+  const navigate = useNavigate();
+
+  const activeAccount = useActiveAccount();
+  const activeChain = useActiveWalletChain();
+
+  useEffect(() => {
+    if (!activeAccount || !activeChain) {
+      navigate("/error");
+    }
+  }, [activeAccount, activeChain, navigate]);
+
+  const contractData = InitialContract(activeAccount, activeChain);
 
   const onDrop = (acceptedFiles) => {
     const file = acceptedFiles[0];
     setImage(file);
   };
 
-  const handleSubmit = () => {
-    setError(null);
-    setSuccess(null);
-
-    if (!name || !message || !image) {
-      setError("All fields are required.");
-      return null;
-    }
-
-    try {
-      setIsUploading(true);
-
-      // Загрузка изображения в IPFS
-      const imageUrl = upload({
-        file: image,
-      });
-
-      const currentTimestamp = Math.floor(Date.now() / 1000);
-      const newListing = {
-        timestamp: currentTimestamp.toString(),
-        name,
-        message,
-        image: imageUrl,
-        sender: "0x6e0d678C10Ad67539470496a91A00B71455061fF", // Текущий адрес пользователя
-      };
-
-      // Сбрасываем состояние формы
-      setImage(null);
-      setMessage("");
-      setName("");
-
-      setSuccess("Ad is uploaded successfully!");
-      return newListing;
-    } catch (err) {
-      console.error(err);
-      setError("Error uploading ad");
-      return null;
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const bg = useColorModeValue("gray.100", "gray.800");
-  const textColor = useColorModeValue("gray.700", "white");
-
-  // Dropzone для загрузки изображения
   const { getRootProps, getInputProps } = useDropzone({
     onDrop,
     accept: "image/*",
@@ -110,9 +68,66 @@ const List = () => {
     },
   });
 
-  const _name = "adfs";
-  const _message = "adsf";
-  const _image = "adsfasfasdf";
+  const handleSubmit = async () => {
+    setError(null);
+
+    if (!name || !message || !image) {
+      setError("All fields are required.");
+      return null;
+    }
+
+    try {
+      setIsUploading(true);
+      const imageUrl = await upload({ file: image });
+
+      const newListing = {
+        timestamp: Math.floor(Date.now() / 1000).toString(),
+        name,
+        message,
+        image: imageUrl,
+        sender: contractData[1].address,
+      };
+
+      setImage(null);
+      setMessage("");
+      setName("");
+
+      return newListing;
+    } catch (err) {
+      console.error(err);
+      setError("Error uploading ad: " + err.message);
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const procceedTransaction = async () => {
+    const list = await handleSubmit();
+    if (!list) return; // Prevent proceeding if handleSubmit fails
+
+    setIsProcessing(true); // Show "Check wallet" message
+
+    const transactionData = prepareContractCall({
+      contract: contractData[0],
+      method:
+        "function placeAdd(string _message, string _name, string _image) payable",
+      params: [list.message, list.name, list.image],
+      value: toWei("0.01"),
+    });
+
+    sendTransaction(transactionData, {
+      onError: (err) => {
+        console.error(err);
+        setError("Transaction was rejected or failed. Please try again.");
+        setIsProcessing(false); // Reset button and status
+      },
+      onSuccess: () => {
+        setError(null);
+        setIsProcessing(false); // Reset button and status
+      },
+    });
+  };
 
   return (
     <Flex
@@ -184,37 +199,30 @@ const List = () => {
           )}
         </FormControl>
 
-        <TransactionButton
-          onClick={() => {
-            console.log(value);
-          }}
-          transaction={() =>
-            prepareContractCall({
-              contract,
-              method:
-                "function placeAdd(string _message, string _name, string _image) payable",
-              params: [_message, _name, _image],
-              value: value,
-            })
-          }
-          onError={(err) => console.log(err)} 
-          onTransactionSent={() => console.log("sent")}
-        >
-          Submit
-        </TransactionButton>
+        <Flex justify="center" mt={4}>
+          <Button
+            colorScheme={isProcessing ? "gray" : "teal"}
+            isDisabled={isProcessing}
+            onClick={procceedTransaction}
+          >
+            {isProcessing ? "Processing..." : "Submit (0.01 ETH)"}
+          </Button>
+        </Flex>
 
-        {/* Сообщение об ошибке */}
-        {error && (
-          <Text mt={4} color="red.500" fontWeight="bold">
-            {error}
-          </Text>
+        {isProcessing && (
+          <Flex justify={"center"}>
+            <Text mt={4} color="blue.500" fontWeight="bold">
+              Check your wallet to confirm the transaction
+            </Text>
+          </Flex>
         )}
 
-        {/* Сообщение об успешной загрузке */}
-        {success && (
-          <Text mt={4} color="green.500" fontWeight="bold">
-            {success}
-          </Text>
+        {error && (
+          <Flex justify={"center"}>
+            <Text mt={4} color="red.500" fontWeight="bold">
+              {error}
+            </Text>
+          </Flex>
         )}
       </Box>
     </Flex>
