@@ -8,8 +8,9 @@ contract AddContract {
         owner = payable(msg.sender);
     }
 
-    event NewAdd(
+    event newAdd(
         address indexed from,
+        uint256 timestamp,
         string description,
         string title,
         string image,
@@ -17,6 +18,7 @@ contract AddContract {
     );
 
     struct Add {
+        uint256 timestamp;
         string title;
         string description;
         string image;
@@ -24,42 +26,28 @@ contract AddContract {
         uint256 price;
     }
 
-    Add[] public adds;
+    Add[] adds;
 
-    function getAdds(uint start, uint count) public view returns (Add[] memory) {
-        require(start < adds.length, "Start index out of bounds");
-        uint end = start + count > adds.length ? adds.length : start + count;
-        uint addsCount = end - start;
-        
-        Add[] memory addsSubset = new Add[](addsCount);
-        for (uint i = 0; i < addsCount; i++) {
-            addsSubset[i] = adds[start + i];
-        }
-        return addsSubset;
+    function getAdds() public view returns (Add[] memory) {
+        return adds;
     }
 
     function placeAdd(
         string memory _title,           
         string memory _description,
-        uint256 _price, // В Wei 
+        uint _price, // Wei 
         string memory _image
     ) public payable {
-        require(msg.value == 0.01 ether, "You must pay 0.01 ETH to place your ad");
+        require(msg.value == 0.01 ether, "You must pay 0.01 ETH to place your add");
 
-        // Добавляем объявление в массив
-        adds.push(Add({
-            title: _title, 
-            description: _description, 
-            image: _image, 
-            sender: msg.sender, 
-            price: _price
-        }));
+        // Исправленный порядок аргументов для структуры Add
+        adds.push(Add(block.timestamp, _title, _description, _image, msg.sender, _price));
 
-        // Перевод оплаты владельцу
+        // Отправка оплаты
         (bool success, ) = owner.call{value: msg.value}("");
-        require(success, "Failed to pay for the ad");
+        require(success, "Failed to pay for the add");
 
-        // Генерация события
-        emit NewAdd(msg.sender, _description, _title, _image, _price);
+        // Исправленный порядок аргументов для события
+        emit newAdd(msg.sender, block.timestamp, _description, _title, _image, _price);
     }
 }
